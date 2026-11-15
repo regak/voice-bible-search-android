@@ -114,7 +114,7 @@ private fun VoiceBibleSearchScreen(onShowCredits: () -> Unit) {
     ) { granted ->
         micPermissionGranted = granted
         if (!granted) {
-            statusText = "Ruhusa ya kipaza sauti inahitajika." // mic permission required
+            statusText = "Microphone permission is required." // mic permission required
         }
     }
 
@@ -144,7 +144,7 @@ private fun VoiceBibleSearchScreen(onShowCredits: () -> Unit) {
         if (error != null) {
             lastErrorText = error
             sessionState = SessionState.ERROR
-            statusText = "Hitilafu: $error"
+            statusText = "Error: $error"
         } else if (connected) {
             sessionState = SessionState.LISTENING
             statusText = "Inasikiliza..."
@@ -192,7 +192,7 @@ private fun VoiceBibleSearchScreen(onShowCredits: () -> Unit) {
         if (!micPermissionGranted) {
             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         } else if (BuildConfig.GEMINI_API_KEY.isBlank()) {
-            statusText = "Hakuna ufunguo wa Gemini API. Weka GEMINI_API_KEY katika local.properties."
+            statusText = "No Gemini API key. Set GEMINI_API_KEY in local.properties."
             sessionState = SessionState.ERROR
         } else {
             sessionState = SessionState.CONNECTING

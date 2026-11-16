@@ -72,7 +72,10 @@ class GeminiLiveClient(
                 onDebugEvent("WebSocket open (http=${response.code})")
                 val sent = sendSetup(webSocket)
                 onDebugEvent("Setup message sent=$sent (waiting for setupComplete ack)")
-                onConnectionStateChanged(true, null)
+                // Deliberately NOT calling onConnectionStateChanged(true, ...) yet --
+                // the UI should stay in a "connecting" state (not "Listening...")
+                // until setupComplete actually arrives (see setupStallWatchdog).
+                armSetupStallWatchdog()
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -85,14 +88,54 @@ class GeminiLiveClient(
                 val bodySnippet = try { response?.body?.string()?.take(500) } catch (e: Exception) { null }
                 Log.e(TAG, "WebSocket failure (http=${response?.code}) body=$bodySnippet", t)
                 onDebugEvent("FAILURE http=${response?.code} ${t.message} body=$bodySnippet")
+                cancelSetupStallWatchdog()
                 onConnectionStateChanged(false, t.message ?: "Connection failed")
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.i(TAG, "WebSocket closed: $code $reason")
+                cancelSetupStallWatchdog()
                 onConnectionStateChanged(false, null)
             }
         })
+    }
+
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var setupStallRunnable: Runnable? = null
+
+    /**
+     * The handshake (http=101) succeeding only proves the WebSocket upgrade
+     * worked -- it does NOT prove Gemini Live is actually processing
+     * anything afterward. On a device with no logcat/ADB access, a network
+     * that interferes with WebSocket data frames after the upgrade (seen on
+     * some mobile carriers / restrictive networks) looks identical in the
+     * UI to a working session that just never gets a reply: the orb sat on
+     * "Listening..." forever with zero further debug-log lines in the field
+     * report that caught this. Surface that as a real, dismissible error
+     * instead of hanging silently, so the user knows to check their network
+     * rather than assuming the app is broken.
+     */
+    private fun armSetupStallWatchdog() {
+        cancelSetupStallWatchdog()
+        val runnable = Runnable {
+            if (!setupAcked) {
+                onDebugEvent("No setupComplete after ${SETUP_TIMEOUT_MS}ms -- likely network issue")
+                onConnectionStateChanged(
+                    false,
+                    "No response from Gemini Live after ${SETUP_TIMEOUT_MS / 1000}s. " +
+                        "Check your internet connection and try again.",
+                )
+                webSocket?.close(1000, "setup timeout")
+                webSocket = null
+            }
+        }
+        setupStallRunnable = runnable
+        mainHandler.postDelayed(runnable, SETUP_TIMEOUT_MS)
+    }
+
+    private fun cancelSetupStallWatchdog() {
+        setupStallRunnable?.let { mainHandler.removeCallbacks(it) }
+        setupStallRunnable = null
     }
 
     private fun sendSetup(webSocket: WebSocket): Boolean {
@@ -220,6 +263,7 @@ class GeminiLiveClient(
     }
 
     override fun disconnect() {
+        cancelSetupStallWatchdog()
         webSocket?.close(1000, "User ended session")
         webSocket = null
         setupAcked = false
@@ -236,7 +280,9 @@ class GeminiLiveClient(
 
         if (message.has("setupComplete")) {
             Log.i(TAG, "Gemini Live setup complete")
+            cancelSetupStallWatchdog()
             setupAcked = true
+            onConnectionStateChanged(true, null)
             var flushed = 0
             while (true) {
                 val chunk = pendingAudioChunks.poll() ?: break
@@ -350,6 +396,9 @@ class GeminiLiveClient(
         private const val ENDPOINT =
             "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
         private const val MODEL = "gemini-3.1-flash-live-preview"
+
+        /** How long to wait for `setupComplete` before surfacing a timeout error. */
+        private const val SETUP_TIMEOUT_MS = 15_000L
 
         /** Gemini Live's expected mic input sample rate. */
         const val INPUT_SAMPLE_RATE_HZ = 16000

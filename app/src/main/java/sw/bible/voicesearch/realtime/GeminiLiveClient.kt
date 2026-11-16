@@ -84,6 +84,22 @@ class GeminiLiveClient(
                 handleServerMessage(text)
             }
 
+            override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) {
+                // Gemini Live sends its JSON replies as BINARY frames, not
+                // text frames (confirmed both via a standalone Python test
+                // where ws.recv() returned `bytes`, and by this exact bug:
+                // without this override, every server reply -- including
+                // setupComplete -- was silently dropped by OkHttp before
+                // ever reaching handleServerMessage, which is precisely the
+                // "opens fine, never responds" symptom the field reports
+                // showed. Same lesson already captured in the sibling
+                // voice-conversation-app-android's GeminiLiveClient.
+                val text = bytes.utf8()
+                Log.d(TAG, "<<< (binary) $text")
+                onDebugEvent(text.take(500))
+                handleServerMessage(text)
+            }
+
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 val bodySnippet = try { response?.body?.string()?.take(500) } catch (e: Exception) { null }
                 Log.e(TAG, "WebSocket failure (http=${response?.code}) body=$bodySnippet", t)

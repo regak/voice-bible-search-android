@@ -395,7 +395,14 @@ class GeminiLiveClient(
         private const val TAG = "VoiceBible/GeminiLive"
         private const val ENDPOINT =
             "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
-        private const val MODEL = "gemini-3.1-flash-live-preview"
+        // Matches the model already confirmed working on-device in the
+        // sibling voice-conversation-app-android -- "-preview" models can
+        // be geo/account-restricted in ways that succeed from a dev
+        // machine's IP but silently fail (no setupComplete, no error frame)
+        // from a different network/region, which is what this app's field
+        // report looked like. Use the same known-good model instead of a
+        // preview one neither sibling app relies on.
+        private const val MODEL = "gemini-3.8-live"
 
         /** How long to wait for `setupComplete` before surfacing a timeout error. */
         private const val SETUP_TIMEOUT_MS = 15_000L

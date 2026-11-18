@@ -176,12 +176,19 @@ class GeminiLiveClient(
                                         "text",
                                         "Wewe ni msaidizi wa sauti wa kutafuta mistari ya Biblia kwa " +
                                             "lugha ya Kiswahili. Mtumiaji atakuuliza kwa sauti kuhusu " +
-                                            "mistari ya Biblia (kwa mfano 'Yohana 3:16' au mada kama " +
-                                            "'upendo'). KILA WAKATI mtumiaji anapoomba andiko la Biblia " +
-                                            "(iwe rejea kamili au mada), ITA chombo search_bible_verse " +
+                                            "mistari ya Biblia (kwa mfano 'Yohana 3:16', kipande cha " +
+                                            "mistari kama 'Yohana 3:16 mpaka 18', sura nzima kama " +
+                                            "'Zaburi 23', au mada kama 'upendo'). KILA WAKATI mtumiaji " +
+                                            "anapoomba andiko la Biblia (iwe rejea kamili, kipande cha " +
+                                            "mistari, sura nzima, au mada), ITA chombo search_bible_verse " +
                                             "ili kupata maandiko sahihi — kamwe usijaribu kukariri au " +
-                                            "kubuni maandiko wewe mwenyewe. Baada ya kupata matokeo, " +
-                                            "soma andiko kwa sauti kwa Kiswahili fasaha.",
+                                            "kubuni maandiko wewe mwenyewe. Kwa kipande cha mistari, weka " +
+                                            "'verse' kama mstari wa mwanzo na 'verse_end' kama mstari wa " +
+                                            "mwisho. Kwa sura nzima, weka 'chapter' pekee bila 'verse'. " +
+                                            "Baada ya kupata matokeo, soma kila mstari uliopatikana kwa " +
+                                            "sauti kwa Kiswahili fasaha, kwa mpangilio, ukitaja namba ya " +
+                                            "mstari kabla ya kila mmoja ukisoma sura nzima au kipande " +
+                                            "cha mistari kadhaa.",
                                     ),
                                 ),
                             )
@@ -206,8 +213,11 @@ class GeminiLiveClient(
                     put(
                         "description",
                         "Tafuta mstari/mistari ya Biblia katika hifadhidata ya ndani ya simu " +
-                            "(nje ya mtandao). Tumia 'book'+'chapter'(+'verse') kwa rejea kamili " +
-                            "(mfano Yohana 3:16), au 'query' kwa utafutaji wa mada (mfano 'upendo').",
+                            "(nje ya mtandao). Tumia 'book'+'chapter'+'verse' kwa rejea kamili " +
+                            "(mfano Yohana 3:16), ongeza 'verse_end' kwa kipande cha mistari " +
+                            "kadhaa (mfano Yohana 3:16-18), weka 'book'+'chapter' pekee bila " +
+                            "'verse' kwa sura NZIMA (mfano Zaburi 23), au tumia 'query' kwa " +
+                            "utafutaji wa mada (mfano 'upendo').",
                     )
                     put(
                         "parameters",
@@ -230,7 +240,16 @@ class GeminiLiveClient(
                                     })
                                     put("verse", JSONObject().apply {
                                         put("type", "INTEGER")
-                                        put("description", "Namba ya mstari (hiari).")
+                                        put("description", "Namba ya mstari (hiari). Kwa sura nzima, usiweke hii kabisa.")
+                                    })
+                                    put("verse_end", JSONObject().apply {
+                                        put("type", "INTEGER")
+                                        put(
+                                            "description",
+                                            "Namba ya mstari wa mwisho kwa kusoma kipande cha mistari " +
+                                                "kadhaa (hiari) -- tumia pamoja na 'verse' kama mwanzo wa " +
+                                                "kipande, mfano verse=16, verse_end=18 kwa 'Yohana 3:16-18'.",
+                                        )
                                     })
                                 },
                             )

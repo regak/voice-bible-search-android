@@ -26,8 +26,8 @@ android {
         applicationId = "sw.bible.voicesearch"
         minSdk = 24
         targetSdk = 34
-        versionCode = 9
-        versionName = "0.1.9"
+        versionCode = 10
+        versionName = "0.1.10"
 
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
 

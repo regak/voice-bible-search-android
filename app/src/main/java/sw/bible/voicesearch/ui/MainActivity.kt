@@ -97,13 +97,16 @@ import sw.bible.voicesearch.realtime.VoiceBackend
  */
 private enum class SessionState { IDLE, CONNECTING, LISTENING, THINKING, SPEAKING, ERROR }
 
-/** One completed voice exchange: the spoken query + the matched verse + its audio for replay. */
+/** One completed voice exchange: the spoken query + the matched verse(s) + its audio for replay. */
 private data class VerseCard(
     val query: String,
     val reference: String,
-    val verseText: String,
+    val verses: List<VerseLine>,
     val audio: ByteArray?,
 )
+
+/** One verse within a card -- a card can hold a single verse, a range, or a whole chapter. */
+private data class VerseLine(val verse: Int, val text: String)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -149,7 +152,7 @@ private fun VoiceBibleSearchScreen(onShowCredits: () -> Unit) {
     // flushed into one VerseCard on turnComplete, then reset for the next query.
     var pendingQuery by remember { mutableStateOf("") }
     var pendingReference by remember { mutableStateOf<String?>(null) }
-    var pendingVerseText by remember { mutableStateOf<String?>(null) }
+    var pendingVerses by remember { mutableStateOf<List<VerseLine>>(emptyList()) }
     val pendingAudioChunks = remember { mutableListOf<ByteArray>() }
 
     var debugLog by remember { mutableStateOf(listOf<String>()) }
@@ -189,7 +192,7 @@ private fun VoiceBibleSearchScreen(onShowCredits: () -> Unit) {
         // previous one's leftover audio/text never bleeds into this query.
         pendingQuery = ""
         pendingReference = null
-        pendingVerseText = null
+        pendingVerses = emptyList()
         pendingAudioChunks.clear()
         sessionState = SessionState.LISTENING
     }
@@ -198,10 +201,10 @@ private fun VoiceBibleSearchScreen(onShowCredits: () -> Unit) {
     }
     fun onResponseDone() {
         // Flush the completed turn into one result card (query + matched
-        // verse + its own replayable audio), then reset for the next query.
+        // verse(s) + its own replayable audio), then reset for the next query.
         val reference = pendingReference
-        val verseText = pendingVerseText
-        if (reference != null && verseText != null) {
+        val verses = pendingVerses
+        if (reference != null && verses.isNotEmpty()) {
             val combinedAudio = if (pendingAudioChunks.isEmpty()) {
                 null
             } else {
@@ -212,13 +215,13 @@ private fun VoiceBibleSearchScreen(onShowCredits: () -> Unit) {
             cards = cards + VerseCard(
                 query = pendingQuery.trim(),
                 reference = reference,
-                verseText = verseText,
+                verses = verses,
                 audio = combinedAudio,
             )
         }
         pendingQuery = ""
         pendingReference = null
-        pendingVerseText = null
+        pendingVerses = emptyList()
         pendingAudioChunks.clear()
         if (sessionState != SessionState.LISTENING) {
             sessionState = SessionState.LISTENING
@@ -246,8 +249,9 @@ private fun VoiceBibleSearchScreen(onShowCredits: () -> Unit) {
      * Native handler for the `search_bible_verse` tool, backed entirely
      * by [BibleRepository]'s local SQLite database — never a network
      * call. Returns the JSON object sent back to Gemini Live as the
-     * functionResponse payload, and stashes the first match so
-     * [onResponseDone] can turn it into a result card.
+     * functionResponse payload, and stashes ALL matched verses (not just
+     * the first) so [onResponseDone] can turn a whole chapter or a verse
+     * range into one multi-line result card, not just a single verse.
      */
     fun onToolCall(name: String, args: JSONObject): JSONObject {
         if (name != "search_bible_verse") {
@@ -257,7 +261,8 @@ private fun VoiceBibleSearchScreen(onShowCredits: () -> Unit) {
         val book = args.optString("book").ifBlank { null }
         val chapter = if (args.has("chapter")) args.optInt("chapter") else null
         val verse = if (args.has("verse")) args.optInt("verse") else null
-        val results = bibleRepository.searchBibleVerse(query, book, chapter, verse)
+        val verseEnd = if (args.has("verse_end")) args.optInt("verse_end") else null
+        val results = bibleRepository.searchBibleVerse(query, book, chapter, verse, verseEnd)
         val resultsJson = JSONArray()
         results.forEach { r ->
             resultsJson.put(
@@ -270,11 +275,19 @@ private fun VoiceBibleSearchScreen(onShowCredits: () -> Unit) {
                 },
             )
         }
-        results.firstOrNull()?.let { first ->
-            pendingReference = first.reference
-            pendingVerseText = first.text
+        if (results.isNotEmpty()) {
+            val first = results.first()
+            val last = results.last()
+            // One verse -> "Yohana 3:16"; several (range or whole chapter)
+            // -> "Yohana 3:16-18" / "Zaburi 23:1-6".
+            pendingReference = if (results.size == 1) {
+                first.reference
+            } else {
+                "${first.book} ${first.chapter}:${first.verse}-${last.verse}"
+            }
+            pendingVerses = results.map { VerseLine(it.verse, it.text) }
         }
-        appendDebug("search_bible_verse(query=$query, book=$book, chapter=$chapter, verse=$verse) -> ${results.size} result(s)")
+        appendDebug("search_bible_verse(query=$query, book=$book, chapter=$chapter, verse=$verse, verse_end=$verseEnd) -> ${results.size} result(s)")
         return JSONObject().apply {
             put("results", resultsJson)
             put("count", results.size)
@@ -612,12 +625,26 @@ private fun VerseResultCard(card: VerseCard, onListen: () -> Unit) {
                 Text(card.reference, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
             }
             Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "\u201C${card.verseText}\u201D",
-                    color = Color(0xFF1A1A1A),
-                    fontSize = 16.sp,
-                    fontStyle = FontStyle.Italic,
-                )
+                card.verses.forEachIndexed { index, line ->
+                    Row(verticalAlignment = Alignment.Top) {
+                        Text(
+                            text = "${line.verse}",
+                            color = Color(0xFF0D2B52),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(end = 6.dp, top = 2.dp),
+                        )
+                        Text(
+                            text = if (card.verses.size == 1) "\u201C${line.text}\u201D" else line.text,
+                            color = Color(0xFF1A1A1A),
+                            fontSize = 16.sp,
+                            fontStyle = FontStyle.Italic,
+                        )
+                    }
+                    if (index != card.verses.lastIndex) {
+                        Spacer(Modifier.height(6.dp))
+                    }
+                }
                 if (card.audio != null) {
                     Spacer(Modifier.height(12.dp))
                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {

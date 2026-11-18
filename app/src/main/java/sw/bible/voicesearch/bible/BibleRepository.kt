@@ -50,24 +50,35 @@ class BibleRepository(context: Context) {
 
     /**
      * Backing implementation for the `search_bible_verse` tool dispatched
-     * from Gemini Live's toolCall messages. Supports two modes:
-     * - Exact reference lookup when [book]/[chapter] (and optionally
-     *   [verse]) are given — indexed lookup on the plain `verses` table.
+     * from Gemini Live's toolCall messages. Supports three modes:
+     * - Exact single-verse lookup when [book]/[chapter]/[verse] are all
+     *   given — indexed lookup on the plain `verses` table.
+     * - A verse RANGE when [book]/[chapter]/[verse] are given plus
+     *   [verseEnd] (e.g. Yohana 3:16-18) — same indexed table, `verse`
+     *   BETWEEN [verse] and [verseEnd].
+     * - A WHOLE CHAPTER when [book]/[chapter] are given but [verse] is
+     *   omitted (e.g. "Zaburi 23" with no specific verse).
      * - Free-text topical search via [query] — FTS4 full-text search over
      *   verse text (e.g. "upendo", "amani", "msamaha").
      *
-     * [limit] caps the number of rows returned to Gemini Live to keep the
-     * toolResponse payload small.
+     * [limit] caps rows for the free-text topical path, where an
+     * unbounded match could otherwise return far more than is useful to
+     * speak aloud. Exact book/chapter/range lookups instead use
+     * [CHAPTER_ROW_CAP] — effectively unlimited for a single chapter
+     * (no Bible chapter has more than ~180 verses) so a whole-chapter or
+     * verse-range request is never silently truncated the way a fixed
+     * low cap would do.
      */
     fun searchBibleVerse(
         query: String? = null,
         book: String? = null,
         chapter: Int? = null,
         verse: Int? = null,
+        verseEnd: Int? = null,
         limit: Int = 5,
     ): List<VerseResult> {
         return if (!book.isNullOrBlank()) {
-            exactLookup(book, chapter, verse, limit)
+            exactLookup(book, chapter, verse, verseEnd)
         } else if (!query.isNullOrBlank()) {
             fullTextSearch(query, limit)
         } else {
@@ -75,17 +86,30 @@ class BibleRepository(context: Context) {
         }
     }
 
-    private fun exactLookup(book: String, chapter: Int?, verse: Int?, limit: Int): List<VerseResult> {
+    private fun exactLookup(book: String, chapter: Int?, verse: Int?, verseEnd: Int?): List<VerseResult> {
         val whereParts = mutableListOf("book_name LIKE ?")
         val args = mutableListOf<String>("%$book%")
         if (chapter != null) {
             whereParts += "chapter = ?"
             args += chapter.toString()
         }
-        if (verse != null) {
+        if (verse != null && verseEnd != null) {
+            // Verse range (e.g. Yohana 3:16-18) -- order start/end defensively
+            // in case the model passed them reversed.
+            val lo = minOf(verse, verseEnd)
+            val hi = maxOf(verse, verseEnd)
+            whereParts += "verse BETWEEN ? AND ?"
+            args += lo.toString()
+            args += hi.toString()
+        } else if (verse != null) {
             whereParts += "verse = ?"
             args += verse.toString()
         }
+        // No verse at all -- a whole-chapter request -- falls through with
+        // only the book/chapter filters, so every verse in that chapter
+        // matches. Use the generous chapter cap either way: a single verse
+        // or range query will only ever match a handful of rows anyway, so
+        // this never hides anything for those cases.
         val cursor = db.query(
             "verses",
             arrayOf("book_name", "chapter", "verse", "text"),
@@ -93,7 +117,7 @@ class BibleRepository(context: Context) {
             args.toTypedArray(),
             null, null,
             "book_order ASC, chapter ASC, verse ASC",
-            limit.toString(),
+            CHAPTER_ROW_CAP.toString(),
         )
         return cursor.use { readResults(it) }
     }
@@ -133,5 +157,8 @@ class BibleRepository(context: Context) {
     companion object {
         private const val TAG = "VoiceBible/Repo"
         const val DB_NAME = "bible.db"
+
+        /** No Bible chapter has anywhere near this many verses (Psalm 119, the longest, has 176). */
+        private const val CHAPTER_ROW_CAP = 200
     }
 }

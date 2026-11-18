@@ -26,7 +26,15 @@ class AudioPlayback {
         track = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    // USAGE_MEDIA (not USAGE_VOICE_COMMUNICATION) -- matches
+                    // the sibling voice-conversation-app-android's working
+                    // AudioEngine. USAGE_VOICE_COMMUNICATION routes through
+                    // Android's call audio stream (lower gain, echo-cancel
+                    // processing, sometimes earpiece-biased) instead of the
+                    // regular media stream, which is why this app's output
+                    // was noticeably quieter than the sibling app's on the
+                    // same device/volume setting.
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build(),
             )
